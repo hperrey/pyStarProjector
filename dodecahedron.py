@@ -255,8 +255,6 @@ def _sortedVectorList(vecList):
 
 if __name__ == "__main__":
     numpy.set_printoptions(precision=2, suppress=True, linewidth=120)
-    import lsst.afw.coord as afwCoord
-    import lsst.afw.geom as afwGeom
 
     print("Dodecahedron with vertices on poles")
     vertexDodec = Dodecahedron(withFacesOnPoles=False)
