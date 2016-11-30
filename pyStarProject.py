@@ -3,6 +3,9 @@ import numpy
 import dodecahedron
 import csv
 
+import numpy as np
+import matplotlib.pyplot as plt
+
 class Star:
     """ class to store a star's data from the catalogue database """
     id = -1 # The database primary key.
@@ -11,11 +14,11 @@ class Star:
     name = "" # A common name for the star,
     mag = 0 # The star's apparent visual magnitude.
     def __init__(self, db):
-        self.id = db['id']
-        self.ra = db['ra']
-        self.dec = db['dec']
+        self.id = int(db['id'])
+        self.ra = float(db['ra'])
+        self.dec = float(db['dec'])
         self.name = db['proper']
-        self.mag = db['mag']
+        self.mag = float(db['mag'])
         
         
 if __name__ == "__main__":
@@ -30,8 +33,9 @@ if __name__ == "__main__":
         starreader = csv.DictReader(csvfile, delimiter=',')
         for row in starreader:
             starlist.append(Star(row))
-            if starreader.line_num > 200:
+            if starreader.line_num > 2000:
                 break
-    
 
-            
+    x = np.array([s.ra for s in starlist])
+    plt.hist(x, 50)
+    plt.show()
