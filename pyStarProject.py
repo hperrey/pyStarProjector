@@ -16,13 +16,20 @@ class Star:
     dec = 0 # The star's declination, for epoch and equinox 2000.0.
     name = "" # A common name for the star,
     mag = 0 # The star's apparent visual magnitude.
+    vec = np.array(np.zeros(3))
     def __init__(self, db):
         self.id = int(db['id'])
         self.ra = float(db['ra'])
         self.dec = float(db['dec'])
         self.name = db['proper']
         self.mag = float(db['mag'])
-        
+        # convert the ra and dec into angles in rad
+        phi = (self.ra/24) * 2 * math.pi
+        rho = (self.dec/90) * math.pi
+        self.vec = np.array(np.zeros(3))
+        self.vec[0] = math.sin(rho) * math.cos(phi) #x
+        self.vec[1] = math.sin(rho) * math.sin(phi) #y
+        self.vec[2] = math.cos(rho) #z
         
 if __name__ == "__main__":
     # argument parsing
@@ -46,7 +53,7 @@ if __name__ == "__main__":
         starreader = csv.DictReader(csvfile, delimiter=',')
         for row in starreader:
             s = Star(row)
-            if s.mag < args.mag:
+            if s.mag < args.mag and s.mag > -26: # filter low-visibility stars and sun
                 starlist.append(s)
             if args.nentries > 0 and len(starlist) > args.nentries:
                 print ("Reached requested maximum number of events: {}".format(args.nentries))
@@ -62,22 +69,20 @@ if __name__ == "__main__":
     plt.hist(np.array([s.ra for s in starlist]), 50)
     plt.xlabel("RA")
     plt.figure()
-    plt.hist(np.array([s.mag for s in starlist]), 50)
+    maglist = np.array([s.mag for s in starlist])
+    plt.hist(maglist, 50)
     plt.xlabel("mag")
-    
-    locations = []
-    for star in starlist:
-        # convert the ra and dec into angles in rad
-        phi = (star.ra/24) * 2 * math.pi
-        rho = (star.dec/90) * math.pi
-        vec = np.array([math.sin(rho) * math.cos(phi), #x
-                       math.sin(rho) * math.sin(phi), #y
-                       math.cos(rho)] #z
-                       )
-        locations.append(vec)
+
+    # marker size for 3D plot should depend on magnitude
+    magmin = np.min(maglist)
+    magmax = np.max(maglist)
+    msizemax = 100
+    msizemin = 1
+    def msize(mag):
+        return msizemax + (mag - magmin)*((msizemin - msizemax)/(magmax - magmin))
 
     from mpl_toolkits.mplot3d import Axes3D
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter([l[0] for l in locations],[l[1] for l in locations], [l[2] for l in locations])
+    ax.scatter([s.vec[0] for s in starlist],[s.vec[1] for s in starlist], [s.vec[2] for s in starlist], s=[msize(s.mag) for s in starlist])
     plt.show()
