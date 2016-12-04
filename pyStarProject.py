@@ -106,13 +106,38 @@ if __name__ == "__main__":
         print("Face %2d: %s, length^2 = %f" % (i, faceVec, np.dot(faceVec, faceVec)))
         
     # create list of stars pinned on dodec's faces
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
     pinnedstarlist = [PinnedStar(s, Dodec) for s in starlist]
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
+    # draw dodecahedron with pinned stars
+    verts = []
+    for i in range(12):
+        faceVec = Dodec.getFaceCtr(i)
+        thisverts = Dodec.getVertices(i)
+        norm = 1/np.dot(thisverts[0], faceVec)
+        for i in thisverts:
+            i *= 0.95*norm
+        verts.append(thisverts)
+        ax.scatter(faceVec[0], faceVec[1], faceVec[2], c='r')
+    ax.add_collection3d(Poly3DCollection(verts))
     ax.scatter([s.dodecvec[0] for s in pinnedstarlist],[s.dodecvec[1] for s in pinnedstarlist],
                [s.dodecvec[2] for s in pinnedstarlist], s=[msize(s.mag) for s in pinnedstarlist])
     
-
+    # for one face, construct a 2D image of the face on the face's local xy-plane
+    # orientation: local x in global z direction
+    for i in range(12):
+        vecface = Dodec.getFaceCtr(i)
+        veclocy = np.cross(vecface ,np.array([0,0,1]))
+        veclocy *= 1/np.dot(veclocy,veclocy)
+        veclocx = np.cross(vecface,veclocy)
+        veclocx *= 1/np.dot(veclocx, veclocx)
+        facestarlist = [s for s in pinnedstarlist if s.faceid == i]
+        plt.figure()
+        plt.plot([np.dot(s.vec-vecface,veclocx) for s in facestarlist],
+                [np.dot(s.vec-vecface,veclocy) for s in facestarlist],
+                marker='o', linestyle='None', s=[msize(s.mag) for s in facestarlist])
+    
     ## final commands to show resulting plots (not needed in an interactive session)
     plt.draw() ## <- shows the plots
     plt.pause(1) # <-------
