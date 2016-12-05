@@ -127,16 +127,25 @@ if __name__ == "__main__":
     # for one face, construct a 2D image of the face on the face's local xy-plane
     # orientation: local x in global z direction
     for i in range(12):
+        # construct unit vectors in the face's plane
         vecface = Dodec.getFaceCtr(i)
         veclocy = np.cross(vecface ,np.array([0,0,1]))
         veclocy *= 1/np.dot(veclocy,veclocy)
         veclocx = np.cross(vecface,veclocy)
         veclocx *= 1/np.dot(veclocx, veclocx)
+        # verify vector orientation
+        if np.dot(veclocx, [0,0,1]) < 0:
+            print ("Face {} x vector reorientation needed".format(i))
+            veclocx *= -1
+        if np.dot(np.cross(veclocx, veclocy), vecface) < 0:
+            print ("Face {} y vector reorientation needed".format(i))
+            veclocy *= -1
+            
         facestarlist = [s for s in pinnedstarlist if s.faceid == i]
         plt.figure()
-        plt.plot([np.dot(s.vec-vecface,veclocx) for s in facestarlist],
-                [np.dot(s.vec-vecface,veclocy) for s in facestarlist],
-                marker='o', linestyle='None', s=[msize(s.mag) for s in facestarlist])
+        plt.scatter([np.dot(s.vec-vecface,veclocx) for s in facestarlist],
+                    [np.dot(s.vec-vecface,veclocy) for s in facestarlist],
+                    s=[msize(s.mag) for s in facestarlist])
     
     ## final commands to show resulting plots (not needed in an interactive session)
     plt.draw() ## <- shows the plots
