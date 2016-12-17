@@ -19,13 +19,25 @@ class Star:
         self.name = name # A common name for the star
         self.mag = float(mag)  # The star's apparent visual magnitude.
         self.highlight = highlight
-        # convert the ra and dec into angles in rad
+        self.updatecoordinates()
+        
+    def updatecoordinates(self):
+        # convert the ra and dec into angles in rad and fill cartesian vector
         phi = (self.ra/24) * 2 * math.pi
         rho = (self.dec/90) * math.pi
         self.vec = np.array(np.zeros(3))
         self.vec[0] = math.sin(rho) * math.cos(phi) #x
         self.vec[1] = math.sin(rho) * math.sin(phi) #y
         self.vec[2] = math.cos(rho) #z
+        
+    def shift(self, delta_ra, delta_dec):
+        # shift star by delta RA and DEC
+        self.dec += delta_dec
+        self.ra += delta_ra
+        # check that result is within scope of parameters
+        self.dec = ((self.dec+90)%180)-90
+        self.ra = self.ra%24
+        self.updatecoordinates()
 
     @classmethod
     def fromcatalogue(cls, db):
@@ -37,6 +49,12 @@ class Star:
         "Initialize Star from another star"        
         return cls(idno = star.id, ra = star.ra, dec = star.dec,
                    name = star.name, mag = star.mag, highlight = star.highlight)
+                   
+    @classmethod
+    def empty(cls):
+        "Initialize Star with dummy info"        
+        return cls(idno = -1, ra = 0, dec = 0,
+                   name = "empty", mag = -20, highlight = True)
 
 class PinnedStar(Star):
     """ Class for pinning a star's coordinates onto dodecahedron """
@@ -51,7 +69,23 @@ class PinnedStar(Star):
         facectr = dodecah.getFaceCtr(self.faceid)
         self.dodecvec = self.vec * (1/np.dot(self.vec, facectr))
         
-if __name__ == "__main__":
+def rotation_matrix(axis, theta):
+    """
+    Return the rotation matrix associated with counterclockwise rotation about
+    the given axis by theta radians.
+    """
+    # code from http://stackoverflow.com/questions/6802577/python-rotation-of-3d-vector
+    axis = np.asarray(axis)
+    axis = axis/math.sqrt(np.dot(axis, axis))
+    a = math.cos(theta/2.0)
+    b, c, d = -axis*math.sin(theta/2.0)
+    aa, bb, cc, dd = a*a, b*b, c*c, d*d
+    bc, ad, ac, ab, bd, cd = b*c, a*d, a*c, a*b, b*d, c*d
+    return np.array([[aa+bb-cc-dd, 2*(bc+ad), 2*(bd-ac)],
+                     [2*(bc-ad), aa+cc-bb-dd, 2*(cd+ab)],
+                     [2*(bd+ac), 2*(cd-ab), aa+dd-bb-cc]])
+                     
+def main():
     ## set up some print-out routines (logging)
     FORMAT = '%(asctime)s %(name)s:line %(lineno)-4d %(levelname)-8s %(message)s'
     logging.basicConfig(format=FORMAT)
@@ -62,20 +96,31 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--nentries", help="max number of entries to read from the catalogue",
                         type=int, default=-1, action="store")
-    parser.add_argument("--mag", help="largest apparent magnitude to still consider for selecting stars from catalogue",
-                        type=float, default=6.5, action="store")
+    parser.add_argument("--mag", 
+                        help="largest apparent magnitude to still consider for selecting stars from catalogue",
+                        type=float, default=5.5, action="store")
     parser.add_argument("--highlight", dest='highlight', help='what constellations (given by their abbreviation) to hightlight', nargs='+')
+    parser.add_argument("--shiftra", 
+                        help="shift the RA of all stars by this value (in h)",
+                        type=float, default=0, action="store")
+    parser.add_argument("--shiftdec", 
+                        help="shift the DEC of all stars by this value (in deg)",
+                        type=float, default=0, action="store")
     args = parser.parse_args()
 
     # read in star catalogue data
     starlist = []
+    polaris = Star.empty()
     with open('HYG-Database/hygdata_v3.csv', 'r') as csvfile:
         starreader = csv.DictReader(csvfile, delimiter=',')
         for row in starreader:
             s = Star.fromcatalogue(row)
+            if s.name == 'Polaris':
+                polaris = s
+                log.info('Found Polaris in db: {}'.format(s.vec))
             if s.mag < args.mag and s.mag > -26: # filter low-visibility stars and sun
                 if args.highlight and row['con'] in args.highlight:
-                    log.debug("Found constellation '{}' to highlight".format(row['con']))
+                    log.debug("Found {} with mag {} in constellation '{}' to highlight".format(s.name, s.mag, row['con']))
                     s.highlight = True
                 if args.highlight and s.name in args.highlight:
                     log.debug("Found star '{}' to highlight".format(s.name))
@@ -91,14 +136,27 @@ if __name__ == "__main__":
     plt.figure()
     plt.hist(np.array([s.dec for s in starlist]), 50)
     plt.xlabel("Dec")
+    plt.show()
     plt.figure()
     plt.hist(np.array([s.ra for s in starlist]), 50)
     plt.xlabel("RA")
+    plt.show()
     plt.figure()
     maglist = np.array([s.mag for s in starlist])
     plt.hist(maglist, 50)
     plt.xlabel("mag")
+    plt.show()
 
+    # rotate the stars around axis pointing to polaris eg to align constallations better with face boundaries
+    # !!! does not update RA and DEC and therefore might get overwritten !!!
+    #M0 = rotation_matrix(polaris.vec, math.pi/4)
+    #for s in starlist:
+    #    s.vec = np.dot(M0, s.vec)
+    if args.shiftra or args.shiftdec:
+        log.info('Shifting stars by RA {} and DEC {}'.format(args.shiftra, args.shiftdec))
+        for s in starlist:
+            s.shift(args.shiftra, args.shiftdec)
+    
     # marker size for 3D plot should depend on magnitude
     magmin = np.min(maglist)
     magmax = np.max(maglist)
@@ -135,11 +193,12 @@ if __name__ == "__main__":
             i *= 0.95*norm # normalize vertices for displaying dodecahedron with right size
         verts.append(thisverts)
         ax.scatter(faceVec[0], faceVec[1], faceVec[2], c='r')
-    ax.add_collection3d(Poly3DCollection(verts))
+    ax.add_collection3d(Poly3DCollection(verts, facecolor='g'))
     ax.scatter([s.dodecvec[0] for s in pinnedstarlist],[s.dodecvec[1] for s in pinnedstarlist],
                [s.dodecvec[2] for s in pinnedstarlist],
                s=[msize(s.mag) for s in pinnedstarlist],
                color=["red" if s.highlight else "blue" for s in pinnedstarlist])
+    plt.show()
     
     # for one face, construct a 2D image of the face on the face's local xy-plane
     # orientation: local x in global z direction
@@ -152,23 +211,43 @@ if __name__ == "__main__":
         veclocx *= 1/math.sqrt(np.dot(veclocx, veclocx))
         # verify vector orientation
         if np.dot(veclocx, [0,0,1]) < 0:
-            print ("Face {} x vector reorientation needed".format(i))
+            log.info ("Face {} x vector reorientation needed".format(i))
             veclocx *= -1
         if np.dot(np.cross(veclocx, veclocy), vecface) < 0:
-            print ("Face {} y vector reorientation needed".format(i))
+            log.info ("Face {} y vector reorientation needed".format(i))
             veclocy *= -1
             
         facestarlist = [s for s in pinnedstarlist if s.faceid == i]
         plt.figure()
+        fig, ax = plt.subplots(figsize=(6,6))
+        # draw borders of face
+        from matplotlib.patches import Circle, PathPatch
+        from matplotlib.path import Path
+        vertices = []
+        for v in Dodec.getVertices(i):
+             norm = 1/np.dot(v, vecface)
+             x = np.dot(norm*v-vecface,veclocx)
+             y = np.dot(norm*v-vecface,veclocy)
+             vertices.append([x,y])
+        #close path
+        vertices.append(vertices[0])
+        dolphin_path = Path(vertices, closed=True)
+        dolphin_patch = PathPatch(dolphin_path, facecolor='none',
+                          edgecolor=(0.0, 0.0, 0.0))
+        ax.add_patch(dolphin_patch)
+        # plot stars
         plt.scatter([np.dot(s.vec-vecface,veclocx) for s in facestarlist],
                     [np.dot(s.vec-vecface,veclocy) for s in facestarlist],
                     s=[msize(s.mag) for s in facestarlist],
-                    color=["red" if s.highlight else "blue" for s in starlist])
+                    color=["red" if s.highlight else "blue" for s in facestarlist])
         plt.axis((-1,1,-1,1))
+        plt.show() ## <- shows the plots
     
     ## final commands to show resulting plots (not needed in an interactive session)
-    plt.draw() ## <- shows the plots
-    plt.pause(1) # <-------
-    input("<Hit Enter To Close>")
-    plt.close('all')
+    #plt.draw()
+    #plt.pause(1) # <-------
+    #input("<Hit Enter To Close>")
+    #plt.close('all')
 
+if __name__ == "__main__":
+	main()
