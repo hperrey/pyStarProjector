@@ -12,23 +12,15 @@ import matplotlib.pyplot as plt
 class Star:
     """ class to store a star's data from the catalogue database """
 
-    def __init__(self, idno, ra, dec, name, mag, highlight = False):
+    def __init__(self, idno, ra, dec, name, mag, vec = None, highlight = False):
         self.id = int(idno) # The database primary key.
         self.ra = float(ra) # The star's right ascension, for epoch and equinox 2000.0.
         self.dec = float(dec)# The star's declination, for epoch and equinox 2000.0.
         self.name = name # A common name for the star
         self.mag = float(mag)  # The star's apparent visual magnitude.
         self.highlight = highlight
-        self.updatecoordinates()
-        
-    def updatecoordinates(self):
-        # convert the ra and dec into angles in rad and fill cartesian vector
-        phi = (self.ra/24) * 2 * math.pi
-        rho = (self.dec/90) * math.pi
-        self.vec = np.array(np.zeros(3))
-        self.vec[0] = math.sin(rho) * math.cos(phi) #x
-        self.vec[1] = math.sin(rho) * math.sin(phi) #y
-        self.vec[2] = math.cos(rho) #z
+        if not vec:
+            self.vec = _calccoordinates()
         
     def shift(self, delta_ra, delta_dec):
         # shift star by delta RA and DEC
@@ -37,7 +29,7 @@ class Star:
         # check that result is within scope of parameters
         self.dec = ((self.dec+90)%180)-90
         self.ra = self.ra%24
-        self.updatecoordinates()
+        self.vec = _calccoordinates()
 
     @classmethod
     def fromcatalogue(cls, db):
@@ -48,7 +40,7 @@ class Star:
     def fromstar(cls, star):
         "Initialize Star from another star"        
         return cls(idno = star.id, ra = star.ra, dec = star.dec,
-                   name = star.name, mag = star.mag, highlight = star.highlight)
+                   name = star.name, mag = star.mag, vec = star.vec, highlight = star.highlight)
                    
     @classmethod
     def empty(cls):
@@ -62,7 +54,8 @@ class PinnedStar(Star):
     def __init__(self, star, dodecah):
         Star.__init__(self, idno = star.id,
                         ra = star.ra, dec = star.dec,
-                        name = star.name, mag = star.mag, highlight = star.highlight)
+                        name = star.name, mag = star.mag, 
+                        vec = star.vec, highlight = star.highlight)
         # calculate which face to project on
         self.faceid = dodecah.getFaceInd(self.vec)
         # determine cartesian coordinates for star on dodecahedron
@@ -84,7 +77,20 @@ def rotation_matrix(axis, theta):
     return np.array([[aa+bb-cc-dd, 2*(bc+ad), 2*(bd-ac)],
                      [2*(bc-ad), aa+cc-bb-dd, 2*(cd+ab)],
                      [2*(bd+ac), 2*(cd-ab), aa+dd-bb-cc]])
+
+def _calccoordinates(ra, dec):
+    """
+     convert the ra and dec into angles (in rad) and return cartesian vector
+     """
+    phi = (ra/24) * 2 * math.pi
+    rho = (dec/90) * math.pi
+    vec = np.array(np.zeros(3))
+    vec[0] = math.sin(rho) * math.cos(phi) #x
+    vec[1] = math.sin(rho) * math.sin(phi) #y
+    vec[2] = math.cos(rho) #z
+    return vec
                      
+                                                               
 def main():
     ## set up some print-out routines (logging)
     FORMAT = '%(asctime)s %(name)s:line %(lineno)-4d %(levelname)-8s %(message)s'
@@ -130,7 +136,7 @@ def main():
                 print ("Reached requested maximum number of events: {}".format(args.nentries))
                 break
 
-    print ("Loaded {} stars into memory".format(len(starlist)))
+    log.info("Loaded {} stars into memory".format(len(starlist)))
             
     # plot some of the relevant star data
     plt.figure()
@@ -156,12 +162,14 @@ def main():
         log.info('Shifting stars by RA {} and DEC {}'.format(args.shiftra, args.shiftdec))
         for s in starlist:
             s.shift(args.shiftra, args.shiftdec)
+        polaris.shift(args.shiftra, args.shiftdec)
     
     # marker size for 3D plot should depend on magnitude
     magmin = np.min(maglist)
     magmax = np.max(maglist)
     msizemax = 100
     msizemin = 1
+    
     def msize(mag):
         return msizemax + (mag - magmin)*((msizemin - msizemax)/(magmax - magmin))
 
@@ -200,47 +208,48 @@ def main():
                color=["red" if s.highlight else "blue" for s in pinnedstarlist])
     plt.show()
     
-    # for one face, construct a 2D image of the face on the face's local xy-plane
+    # for one face, construct a 2D image of the face on the face's 
+    # local xy-plane
     # orientation: local x in global z direction
     for i in range(12):
         # construct unit vectors in the face's plane
         vecface = Dodec.getFaceCtr(i)
-        veclocy = np.cross(vecface ,np.array([0,0,1]))
-        veclocy *= 1/math.sqrt(np.dot(veclocy,veclocy))
-        veclocx = np.cross(vecface,veclocy)
+        veclocy = np.cross(vecface, np.array([0, 0, 1]))
+        veclocy *= 1/math.sqrt(np.dot(veclocy, veclocy))
+        veclocx = np.cross(vecface, veclocy)
         veclocx *= 1/math.sqrt(np.dot(veclocx, veclocx))
         # verify vector orientation
-        if np.dot(veclocx, [0,0,1]) < 0:
-            log.info ("Face {} x vector reorientation needed".format(i))
+        if np.dot(veclocx, [0, 0, 1]) < 0:
+            log.info("Face {} x vector reorientation needed".format(i))
             veclocx *= -1
         if np.dot(np.cross(veclocx, veclocy), vecface) < 0:
-            log.info ("Face {} y vector reorientation needed".format(i))
+            log.info("Face {} y vector reorientation needed".format(i))
             veclocy *= -1
             
         facestarlist = [s for s in pinnedstarlist if s.faceid == i]
         plt.figure()
-        fig, ax = plt.subplots(figsize=(6,6))
+        fig, ax = plt.subplots(figsize=(6, 6))
         # draw borders of face
         from matplotlib.patches import Circle, PathPatch
         from matplotlib.path import Path
         vertices = []
         for v in Dodec.getVertices(i):
-             norm = 1/np.dot(v, vecface)
-             x = np.dot(norm*v-vecface,veclocx)
-             y = np.dot(norm*v-vecface,veclocy)
-             vertices.append([x,y])
-        #close path
+            norm = 1/np.dot(v, vecface)
+            x = np.dot(norm*v-vecface, veclocx)
+            y = np.dot(norm*v-vecface, veclocy)
+            vertices.append([x,y])
+        # close path
         vertices.append(vertices[0])
         dolphin_path = Path(vertices, closed=True)
         dolphin_patch = PathPatch(dolphin_path, facecolor='none',
-                          edgecolor=(0.0, 0.0, 0.0))
+                                  edgecolor=(0.0, 0.0, 0.0))
         ax.add_patch(dolphin_patch)
         # plot stars
-        plt.scatter([np.dot(s.vec-vecface,veclocx) for s in facestarlist],
-                    [np.dot(s.vec-vecface,veclocy) for s in facestarlist],
+        plt.scatter([np.dot(s.vec-vecface, veclocx) for s in facestarlist],
+                    [np.dot(s.vec-vecface, veclocy) for s in facestarlist],
                     s=[msize(s.mag) for s in facestarlist],
                     color=["red" if s.highlight else "blue" for s in facestarlist])
-        plt.axis((-1,1,-1,1))
+        plt.axis((-1, 1, -1, 1))
         plt.show() ## <- shows the plots
     
     ## final commands to show resulting plots (not needed in an interactive session)
