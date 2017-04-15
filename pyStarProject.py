@@ -12,15 +12,17 @@ import matplotlib.pyplot as plt
 class Star:
     """ class to store a star's data from the catalogue database """
 
-    def __init__(self, idno, ra, dec, name, mag, vec = None, highlight = False):
+    def __init__(self, idno, ra, dec, name, mag, vec = np.array(np.zeros(3)), highlight = False):
         self.id = int(idno) # The database primary key.
         self.ra = float(ra) # The star's right ascension, for epoch and equinox 2000.0.
         self.dec = float(dec)# The star's declination, for epoch and equinox 2000.0.
         self.name = name # A common name for the star
         self.mag = float(mag)  # The star's apparent visual magnitude.
         self.highlight = highlight
-        if not vec:
-            self.vec = _calccoordinates()
+        if not vec.any():
+            self.vec = _calccoordinates(self.ra, self.dec)
+        else:
+            self.vec = vec
         
     def shift(self, delta_ra, delta_dec):
         # shift star by delta RA and DEC
@@ -29,7 +31,7 @@ class Star:
         # check that result is within scope of parameters
         self.dec = ((self.dec+90)%180)-90
         self.ra = self.ra%24
-        self.vec = _calccoordinates()
+        self.vec = _calccoordinates(self.ra, self.dec)
 
     @classmethod
     def fromcatalogue(cls, db):
@@ -90,7 +92,19 @@ def _calccoordinates(ra, dec):
     vec[2] = math.cos(rho) #z
     return vec
                      
-                                                               
+def _findFacesSharingVertices(vertices, dodecahedron):
+    '''returns which faces of a dodecahedron share the two given vertices'''
+    faces = []
+    for f in range(12):
+        matches = 0
+        for v in dodecahedron.getVertices(f):
+            for ref in vertices:
+                if np.equal(v, ref).all():
+                    matches += 1
+        if matches == len(vertices):
+            faces.append(f)
+    return faces
+
 def main():
     ## set up some print-out routines (logging)
     FORMAT = '%(asctime)s %(name)s:line %(lineno)-4d %(levelname)-8s %(message)s'
@@ -220,10 +234,10 @@ def main():
         veclocx *= 1/math.sqrt(np.dot(veclocx, veclocx))
         # verify vector orientation
         if np.dot(veclocx, [0, 0, 1]) < 0:
-            log.info("Face {} x vector reorientation needed".format(i))
+            log.debug("Face {} x vector reorientation needed".format(i))
             veclocx *= -1
         if np.dot(np.cross(veclocx, veclocy), vecface) < 0:
-            log.info("Face {} y vector reorientation needed".format(i))
+            log.debug("Face {} y vector reorientation needed".format(i))
             veclocy *= -1
             
         facestarlist = [s for s in pinnedstarlist if s.faceid == i]
@@ -240,15 +254,27 @@ def main():
             vertices.append([x,y])
         # close path
         vertices.append(vertices[0])
-        dolphin_path = Path(vertices, closed=True)
-        dolphin_patch = PathPatch(dolphin_path, facecolor='none',
+        # loop over sides and identify bordering faces
+        borderfaces = []
+        for s in range(5):
+            f = _findFacesSharingVertices([Dodec.getVertices(i)[s], 
+                                        Dodec.getVertices(i)[(s+1)%5]], Dodec)
+            log.debug('Side {} of face {} is shared with face {}'.format(s, i, [_f for _f in f if _f != i]))
+            borderfaces.append([_f for _f in f if _f != i][0])
+        # add path to draw hexagon outline
+        hexagon_path = Path(vertices, closed=True)
+        hexagon_patch = PathPatch(hexagon_path, facecolor='none',
                                   edgecolor=(0.0, 0.0, 0.0))
-        ax.add_patch(dolphin_patch)
+        ax.add_patch(hexagon_patch)
         # plot stars
         plt.scatter([np.dot(s.vec-vecface, veclocx) for s in facestarlist],
                     [np.dot(s.vec-vecface, veclocy) for s in facestarlist],
                     s=[msize(s.mag) for s in facestarlist],
                     color=["red" if s.highlight else "blue" for s in facestarlist])
+        # add text indicating bordering faces and this face's index
+        for s in range(5):
+            textcoord = 1.15*(np.array(vertices[s+1])+0.5*(np.array(vertices[s])-np.array(vertices[s+1])))
+            plt.text(textcoord[0], textcoord[1], 'face {}'.format(borderfaces[s]))
         plt.axis((-1, 1, -1, 1))
         plt.show() ## <- shows the plots
     
